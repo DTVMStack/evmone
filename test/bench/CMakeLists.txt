@@ -5,6 +5,16 @@
 add_executable(evmone-bench)
 target_include_directories(evmone-bench PRIVATE ${evmone_private_include_dir})
 target_link_libraries(evmone-bench PRIVATE evmone evmone::testutils evmc::loader benchmark::benchmark)
+
+# Link external VM library if available
+find_library(DTVMAPI_LIB dtvmapi PATHS ${CMAKE_SOURCE_DIR})
+if(DTVMAPI_LIB)
+    target_link_libraries(evmone-bench PRIVATE ${DTVMAPI_LIB})
+    target_compile_definitions(evmone-bench PRIVATE HAVE_EXTERNAL_VM)
+    message(STATUS "Found libdtvmapi.so, enabling external VM support in benchmark")
+else()
+    message(STATUS "libdtvmapi.so not found, external VM support disabled in benchmark")
+endif()
 target_sources(
     evmone-bench PRIVATE
     bench.cpp

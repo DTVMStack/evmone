@@ -35,6 +35,12 @@ protected:
     /// Reports if execution is done by evmone/Advanced.
     static bool is_advanced() noexcept;
 
+    /// Reports if execution is done by external VM.
+    static bool is_external() noexcept;
+
+    /// Gets the name of the current VM.
+    std::string get_vm_name() const noexcept;
+
     /// The VM handle.
     evmc::VM& vm;
 

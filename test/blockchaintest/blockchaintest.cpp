@@ -7,21 +7,84 @@
 #include <evmone/evmone.h>
 #include <evmone/version.h>
 #include <gtest/gtest.h>
+#include <evmc/loader.h>
+#include <filesystem>
 #include <iostream>
+#include <memory>
+#include "dt_vm.h"
 
 namespace fs = std::filesystem;
 
 namespace
 {
+namespace vm_manager
+{
+evmc::VM evmone_advanced{evmc_create_evmone(), {{"advanced", ""}}};
+evmc::VM evmone_baseline{evmc_create_evmone()};
+
+std::unique_ptr<evmc::VM> external_vm;
+
+bool try_load_external_vm(const std::string& path)
+{
+    auto ec = evmc_loader_error_code{};
+    auto vm = evmc::VM{evmc_load_and_configure(path.c_str(), &ec)};
+    if (ec == EVMC_LOADER_SUCCESS) {
+        external_vm = std::make_unique<evmc::VM>(std::move(vm));
+        std::cout << "Successfully loaded external VM from: " << path << std::endl;
+        return true;
+    }
+    return false;
+}
+
+void discover_and_load_external_vm() {
+#ifdef HAVE_EXTERNAL_VM
+    std::vector<std::string> search_paths = {
+        "./libdtvmapi.so",
+        "../libdtvmapi.so",
+        "/usr/local/lib/libdtvmapi.so",
+        "/usr/lib/libdtvmapi.so"
+    };
+
+    for (const auto& path : search_paths) {
+        if (std::filesystem::exists(path)) {
+            if (try_load_external_vm(path)) {
+                return;
+            }
+        }
+    }
+    std::cout << "External VM library not found in any search path" << std::endl;
+#endif
+}
+
+std::vector<std::pair<std::string, evmc::VM*>> get_available_vms() {
+    static bool initialized = false;
+    if (!initialized) {
+        discover_and_load_external_vm();
+        initialized = true;
+    }
+
+    std::vector<std::pair<std::string, evmc::VM*>> vms;
+    vms.emplace_back("evmone_advanced", &evmone_advanced);
+    vms.emplace_back("evmone_baseline", &evmone_baseline);
+
+    if (external_vm) {
+        vms.emplace_back("external_vm", external_vm.get());
+    }
+
+    return vms;
+}
+}  // namespace vm_manager
+
 /// Implementation of a gtest Test which runs all blockchain tests from a given file.
 class BlockchainGTestFile : public testing::Test
 {
     fs::path m_json_test_file;
     evmc::VM& m_vm;
+    bool m_trace = false;
 
 public:
-    explicit BlockchainGTestFile(fs::path json_test_file, evmc::VM& vm) noexcept
-      : m_json_test_file{std::move(json_test_file)}, m_vm{vm}
+    explicit BlockchainGTestFile(fs::path json_test_file, evmc::VM& vm, bool trace) noexcept
+      : m_json_test_file{std::move(json_test_file)}, m_vm{vm}, m_trace{trace}
     {}
 
     void TestBody() final
@@ -30,6 +93,8 @@ public:
 
         try
         {
+            if (m_trace)
+                m_vm.set_option("trace", "1");
             evmone::test::run_blockchain_tests(evmone::test::load_blockchain_tests(f), m_vm);
         }
         catch (const evmone::test::UnsupportedTestFeature& ex)
@@ -38,11 +103,11 @@ public:
         }
     }
 
-    static void register_one(const std::string& suite_name, const fs::path& file, evmc::VM& vm)
+    static void register_one(const std::string& suite_name, const fs::path& file, evmc::VM& vm, bool trace)
     {
         testing::RegisterTest(suite_name.c_str(), file.stem().string().c_str(), nullptr, nullptr,
             file.string().c_str(), 0,
-            [file, &vm]() -> testing::Test* { return new BlockchainGTestFile(file, vm); });
+            [file, &vm, trace]() -> testing::Test* { return new BlockchainGTestFile(file, vm, trace); });
     }
 };
 
@@ -51,28 +116,31 @@ class BlockchainGTest : public testing::Test
 {
     const evmone::test::BlockchainTest m_blockchain_test;
     evmc::VM& m_vm;
+    bool m_trace = false;
 
 public:
-    explicit BlockchainGTest(evmone::test::BlockchainTest blockchain_test, evmc::VM& vm) noexcept
-      : m_blockchain_test{std::move(blockchain_test)}, m_vm{vm}
+    explicit BlockchainGTest(evmone::test::BlockchainTest blockchain_test, evmc::VM& vm, bool trace) noexcept
+      : m_blockchain_test{std::move(blockchain_test)}, m_vm{vm}, m_trace{trace}
     {}
 
     void TestBody() final
     {
+        if (m_trace)
+            m_vm.set_option("trace", "1");
         evmone::test::run_blockchain_tests(std::array{m_blockchain_test}, m_vm);
     }
 
     static void register_one(const evmone::test::BlockchainTest& test,
         const std::string& suite_name, const std::string& test_name, const fs::path& file,
-        evmc::VM& vm)
+        evmc::VM& vm, bool trace)
     {
         testing::RegisterTest(suite_name.c_str(), test_name.c_str(), nullptr, nullptr,
             file.string().c_str(), 0,
-            [test, &vm]() -> testing::Test* { return new BlockchainGTest(test, vm); });
+            [test, &vm, trace]() -> testing::Test* { return new BlockchainGTest(test, vm, trace); });
     }
 };
 
-void register_test_files(const fs::path& root, evmc::VM& vm)
+void register_test_files(const fs::path& root, const std::string& vm_name, evmc::VM& vm, bool trace)
 {
     if (is_directory(root))
     {
@@ -86,7 +154,10 @@ void register_test_files(const fs::path& root, evmc::VM& vm)
         std::ranges::sort(test_files);
 
         for (const auto& p : test_files)
-            BlockchainGTestFile::register_one(fs::relative(p, root).parent_path().string(), p, vm);
+        {
+            std::string suite_name = vm_name + "/" + fs::relative(p, root).parent_path().string();
+            BlockchainGTestFile::register_one(suite_name, p, vm, trace);
+        }
     }
     else  // Treat as a file.
     {
@@ -95,7 +166,11 @@ void register_test_files(const fs::path& root, evmc::VM& vm)
         {
             const auto tests = evmone::test::load_blockchain_tests(f);
             for (const auto& test : tests)
-                BlockchainGTest::register_one(test, root.string(), test.name, root, vm);
+            {
+                std::string suite_name = vm_name + "/" + root.string();
+                std::string test_name = test.name;
+                BlockchainGTest::register_one(test, suite_name, test_name, root, vm, trace);
+            }
         }
         catch (const evmone::test::UnsupportedTestFeature& ex)
         {
@@ -127,15 +202,52 @@ int main(int argc, char* argv[])
         bool trace_flag = false;
         app.add_flag("--trace", trace_flag, "Enable EVM tracing");
 
+        std::optional<std::string> vm_filter;
+        app.add_option("--vm", vm_filter,
+            "VM filter. Run tests only on VMs containing the specified string (e.g., 'external', 'evmone_advanced').");
+
         CLI11_PARSE(app, argc, argv);
 
-        evmc::VM vm{evmc_create_evmone()};
+        auto available_vms = vm_manager::get_available_vms();
 
-        if (trace_flag)
-            vm.set_option("trace", "1");
+        if (available_vms.empty())
+        {
+            std::cerr << "No VMs available for testing\n";
+            return -1;
+        }
 
-        for (const auto& p : paths)
-            register_test_files(p, vm);
+        if (vm_filter.has_value())
+        {
+            auto filtered_vms = std::vector<std::pair<std::string, evmc::VM*>>{};
+            for (const auto& [name, vm] : available_vms)
+            {
+                if (name.find(*vm_filter) != std::string::npos)
+                {
+                    filtered_vms.push_back({name, vm});
+                }
+            }
+            available_vms = std::move(filtered_vms);
+        }
+
+        if (available_vms.empty())
+        {
+            std::cerr << "No VMs match the filter: " << *vm_filter << "\n";
+            return -1;
+        }
+
+        for (const auto& [vm_name, vm_ptr] : available_vms)
+        {
+            std::cout << "Registering tests for VM: " << vm_name << std::endl;
+
+            if (trace_flag)
+            {
+                std::ios::sync_with_stdio(false);
+                vm_ptr->set_option("trace", "1");
+            }
+
+            for (const auto& p : paths)
+                register_test_files(p, vm_name, *vm_ptr, trace_flag);
+        }
 
         return RUN_ALL_TESTS();
     }

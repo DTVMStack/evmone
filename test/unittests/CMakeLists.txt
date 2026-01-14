@@ -80,7 +80,7 @@ target_sources(
     statetest_withdrawals_test.cpp
     tracing_test.cpp
 )
-target_link_libraries(evmone-unittests PRIVATE evmone evmone::evmmax evmone::experimental evmone::state evmone::testutils GTest::gtest GTest::gtest_main)
+target_link_libraries(evmone-unittests PRIVATE evmone evmone::evmmax evmone::experimental evmone::state evmone::testutils evmc::loader GTest::gtest GTest::gtest_main)
 target_include_directories(evmone-unittests PRIVATE ${evmone_private_include_dir})
 
 gtest_discover_tests(
@@ -96,3 +96,13 @@ set_source_files_properties(
     main.cpp
     PROPERTIES COMPILE_DEFINITIONS PROJECT_VERSION="${PROJECT_VERSION}"
 )
+
+# Link external VM library if available
+find_library(DTVMAPI_LIB dtvmapi PATHS ${CMAKE_SOURCE_DIR})
+if(DTVMAPI_LIB)
+    target_link_libraries(evmone-unittests PRIVATE ${DTVMAPI_LIB})
+    target_compile_definitions(evmone-unittests PRIVATE HAVE_EXTERNAL_VM)
+    message(STATUS "Found libdtvmapi.so, enabling external VM support in unittests")
+else()
+    message(STATUS "libdtvmapi.so not found, external VM support disabled in unittests")
+endif()
