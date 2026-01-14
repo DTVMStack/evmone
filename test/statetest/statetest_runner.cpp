@@ -6,12 +6,47 @@
 #include <test/utils/mpt_hash.hpp>
 #include <test/utils/rlp.hpp>
 #include <test/utils/statetest.hpp>
+#include <evmone/evmone.h>
 
 namespace evmone::test
 {
+namespace
+{
+std::string get_vm_name(const evmc::VM& vm)
+{
+    const char* vm_name = vm.name();
+    if (vm_name == nullptr)
+        return "unknown";
+
+    std::string name_str(vm_name);
+
+    if (name_str == "evmone")
+    {
+        const auto* test_info = ::testing::UnitTest::GetInstance()->current_test_info();
+        if (test_info && test_info->test_suite_name())
+        {
+            std::string suite_name(test_info->test_suite_name());
+            if (suite_name.find("evmone_advanced") != std::string::npos)
+                return "evmone_advanced";
+            else if (suite_name.find("evmone_baseline") != std::string::npos)
+                return "evmone_baseline";
+            else if (suite_name.find("external_vm") != std::string::npos)
+                return "external_vm";
+        }
+
+        return "evmone";
+    }
+
+    return name_str;
+}
+}  // namespace
+
 void run_state_test(const StateTransitionTest& test, evmc::VM& vm, bool trace_summary)
 {
     SCOPED_TRACE(test.name);
+
+    const auto vm_name = get_vm_name(vm);
+    SCOPED_TRACE("VM: " + vm_name);
     for (const auto& [rev, cases, block] : test.cases)
     {
         validate_state(test.pre_state, rev);
@@ -43,6 +78,7 @@ void run_state_test(const StateTransitionTest& test, evmc::VM& vm, bool trace_su
             if (trace_summary)
             {
                 std::clog << '{';
+                std::clog << R"("vm":")" << vm_name << R"(",)";
                 if (holds_alternative<state::TransactionReceipt>(res))  // if tx valid
                 {
                     const auto& r = get<state::TransactionReceipt>(res);

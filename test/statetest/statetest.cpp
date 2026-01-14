@@ -7,12 +7,73 @@
 #include <evmone/version.h>
 #include <gtest/gtest.h>
 #include <test/utils/statetest.hpp>
+#include <evmc/loader.h>
+#include <filesystem>
 #include <iostream>
+#include <memory>
+#include "dt_vm.h"
 
 namespace fs = std::filesystem;
 
 namespace
 {
+namespace vm_manager
+{
+evmc::VM evmone_advanced{evmc_create_evmone(), {{"advanced", ""}}};
+evmc::VM evmone_baseline{evmc_create_evmone()};
+
+std::unique_ptr<evmc::VM> external_vm;
+
+bool try_load_external_vm(const std::string& path)
+{
+    auto ec = evmc_loader_error_code{};
+    auto vm = evmc::VM{evmc_load_and_configure(path.c_str(), &ec)};
+    if (ec == EVMC_LOADER_SUCCESS) {
+        external_vm = std::make_unique<evmc::VM>(std::move(vm));
+        std::cout << "Successfully loaded external VM from: " << path << std::endl;
+        return true;
+    }
+    return false;
+}
+
+void discover_and_load_external_vm() {
+#ifdef HAVE_EXTERNAL_VM
+    std::vector<std::string> search_paths = {
+        "./libdtvmapi.so",
+        "../libdtvmapi.so",
+        "/usr/local/lib/libdtvmapi.so",
+        "/usr/lib/libdtvmapi.so"
+    };
+
+    for (const auto& path : search_paths) {
+        if (std::filesystem::exists(path)) {
+            if (try_load_external_vm(path)) {
+                return;
+            }
+        }
+    }
+    std::cout << "External VM library not found in any search path" << std::endl;
+#endif
+}
+
+std::vector<std::pair<std::string, evmc::VM*>> get_available_vms() {
+    static bool initialized = false;
+    if (!initialized) {
+        discover_and_load_external_vm();
+        initialized = true;
+    }
+
+    std::vector<std::pair<std::string, evmc::VM*>> vms;
+    vms.emplace_back("evmone_advanced", &evmone_advanced);
+    vms.emplace_back("evmone_baseline", &evmone_baseline);
+
+    if (external_vm) {
+        vms.emplace_back("external_vm", external_vm.get());
+    }
+
+    return vms;
+}
+}  // namespace vm_manager
 /// Implementation of a gtest Test which runs all state tests from a given file.
 class StateTestFile : public testing::Test
 {
@@ -75,7 +136,7 @@ public:
 };
 
 void register_test_files(
-    const fs::path& root, const std::optional<std::string>& filter, evmc::VM& vm, bool trace)
+    const fs::path& root, const std::optional<std::string>& filter, const std::string& vm_name, evmc::VM& vm, bool trace)
 {
     if (is_directory(root))
     {
@@ -89,8 +150,10 @@ void register_test_files(
         std::ranges::sort(test_files);
 
         for (const auto& p : test_files)
-            StateTestFile::register_one(
-                fs::relative(p, root).parent_path().string(), p, filter, vm, trace);
+        {
+            std::string suite_name = vm_name + "/" + fs::relative(p, root).parent_path().string();
+            StateTestFile::register_one(suite_name, p, filter, vm, trace);
+        }
     }
     else  // Treat as a file.
     {
@@ -100,7 +163,9 @@ void register_test_files(
         {
             if (filter.has_value() && test.name.find(*filter) == std::string::npos)
                 continue;
-            StateTest::register_one(test, root.string(), test.name, root, vm, trace);
+            std::string suite_name = vm_name + "/" + root.string();
+            std::string test_name = test.name;
+            StateTest::register_one(test, suite_name, test_name, root, vm, trace);
         }
     }
 }
@@ -146,18 +211,52 @@ int main(int argc, char* argv[])
         app.add_flag("--trace-summary", trace_summary, "Output trace summary only")
             ->excludes(trace_opt);
 
+        std::optional<std::string> vm_filter;
+        app.add_option("--vm", vm_filter,
+            "VM filter. Run tests only on VMs containing the specified string (e.g., 'external', 'evmone_advanced').");
+
         CLI11_PARSE(app, argc, argv);
 
-        evmc::VM vm{evmc_create_evmone(), {{"O", "0"}}};
+        auto available_vms = vm_manager::get_available_vms();
 
-        if (trace)
+        if (available_vms.empty())
         {
-            std::ios::sync_with_stdio(false);
-            vm.set_option("trace", "1");
+            std::cerr << "No VMs available for testing\n";
+            return -1;
         }
 
-        for (const auto& p : paths)
-            register_test_files(p, filter, vm, trace || trace_summary);
+        if (vm_filter.has_value())
+        {
+            auto filtered_vms = std::vector<std::pair<std::string, evmc::VM*>>{};
+            for (const auto& [name, vm] : available_vms)
+            {
+                if (name.find(*vm_filter) != std::string::npos)
+                {
+                    filtered_vms.push_back({name, vm});
+                }
+            }
+            available_vms = std::move(filtered_vms);
+        }
+
+        if (available_vms.empty())
+        {
+            std::cerr << "No VMs match the filter: " << *vm_filter << "\n";
+            return -1;
+        }
+
+        for (const auto& [vm_name, vm_ptr] : available_vms)
+        {
+            std::cout << "Registering tests for VM: " << vm_name << std::endl;
+
+            if (trace)
+            {
+                std::ios::sync_with_stdio(false);
+                vm_ptr->set_option("trace", "1");
+            }
+
+            for (const auto& p : paths)
+                register_test_files(p, filter, vm_name, *vm_ptr, trace || trace_summary);
+        }
 
         return RUN_ALL_TESTS();
     }

@@ -11,6 +11,7 @@
 #include <evmone/advanced_execution.hpp>
 #include <evmone/baseline.hpp>
 #include <evmone/vm.hpp>
+#include <chrono>
 
 namespace evmone::test
 {
@@ -154,8 +155,57 @@ constexpr auto bench_baseline_execute =
 inline void bench_evmc_execute(benchmark::State& state, evmc::VM& vm, bytes_view code,
     bytes_view input = {}, bytes_view expected_output = {})
 {
-    bench_execute<FakeExecutionState, FakeCodeAnalysis, evmc_execute, evmc_analyse>(
-        state, vm, code, input, expected_output);
+    constexpr auto rev = default_revision;
+    constexpr auto gas_limit = default_gas_limit;
+
+    evmc::MockedHost host;
+    evmc_message msg{};
+    msg.kind = EVMC_CALL;
+    msg.gas = gas_limit;
+    msg.input_data = input.data();
+    msg.input_size = input.size();
+
+    {  // Test run for validation
+        const auto r = vm.execute(host, rev, msg, code.data(), code.size());
+        if (r.status_code != EVMC_SUCCESS)
+        {
+            state.SkipWithError(("failure: " + std::to_string(r.status_code)).c_str());
+            return;
+        }
+
+        if (!expected_output.empty())
+        {
+            const auto output = bytes_view{r.output_data, r.output_size};
+            if (output != expected_output)
+            {
+                state.SkipWithError(
+                    ("got: " + hex(output) + "  expected: " + hex(expected_output)).c_str());
+                return;
+            }
+        }
+    }
+
+    auto total_gas_used = int64_t{0};
+    auto iteration_gas_used = int64_t{0};
+    auto total_execution_time = std::chrono::nanoseconds{0};
+
+    for (auto _ : state)
+    {
+        const auto start_time = std::chrono::high_resolution_clock::now();
+        const auto r = vm.execute(host, rev, msg, code.data(), code.size());
+        const auto end_time = std::chrono::high_resolution_clock::now();
+
+        iteration_gas_used = gas_limit - r.gas_left;
+        total_gas_used += iteration_gas_used;
+        total_execution_time += std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time);
+    }
+
+    using benchmark::Counter;
+    state.counters["gas_used"] = Counter(static_cast<double>(iteration_gas_used));
+    state.counters["gas_rate"] = Counter(static_cast<double>(total_gas_used), Counter::kIsRate);
+    state.counters["execution_time_ns"] = Counter(static_cast<double>(total_execution_time.count()) / static_cast<double>(state.iterations()));
+    state.counters["code_size"] = Counter(static_cast<double>(code.size()));
+    state.counters["input_size"] = Counter(static_cast<double>(input.size()));
 }
 
 }  // namespace evmone::test

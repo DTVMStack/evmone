@@ -10,6 +10,7 @@
 #include <evmone/tracing.hpp>
 #include <evmone/vm.hpp>
 #include <gmock/gmock.h>
+#include "dt_vm.h"
 
 using namespace testing;
 using namespace evmone::test;

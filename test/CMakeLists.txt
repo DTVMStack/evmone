@@ -47,7 +47,12 @@ set_target_properties(
 
 get_target_property(type evmone TYPE)
 if(type STREQUAL SHARED_LIBRARY)
-    evmc_add_vm_test(NAME ${PROJECT_NAME}/evmc-vmtester TARGET evmone)
+    # Only add evmc-vmtester test if the target is available
+    if(TARGET evmc::evmc-vmtester)
+        evmc_add_vm_test(NAME ${PROJECT_NAME}/evmc-vmtester TARGET evmone)
+    else()
+        message(STATUS "evmc-vmtester not available, skipping evmc VM test")
+    endif()
 
     if(TARGET evm-test)
         add_test(NAME ${PROJECT_NAME}/evm-test COMMAND evm-test $<TARGET_FILE:evmone>)
