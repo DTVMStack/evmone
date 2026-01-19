@@ -678,7 +678,6 @@ TEST_P(evm, abort)
 
 TEST_P(evm, staticmode)
 {
-    GTEST_SKIP() << "Test temporarily skipped";
     auto code_prefix = 1 + 6 * OP_DUP1;
 
     rev = EVMC_CONSTANTINOPLE;

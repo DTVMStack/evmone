@@ -21,7 +21,6 @@ TEST_P(evm, evmone_loaded_program_relocation)
 
 TEST_P(evm, evmone_block_stack_req_overflow)
 {
-    GTEST_SKIP() << "Test temporarily skipped";
     // This tests constructs a code with single basic block which stack requirement is > int16 max.
     // Such basic block can cause int16_t overflow during analysis.
     // The CALL instruction is going to be used because it has -6 stack change.
@@ -62,7 +61,6 @@ TEST_P(evm, evmone_block_max_stack_growth_overflow)
 
 TEST_P(evm, evmone_block_gas_cost_overflow_create)
 {
-    GTEST_SKIP() << "Test temporarily skipped";
     // The goal is to build bytecode with as many CREATE instructions (the most expensive one)
     // as possible but with having balanced stack.
     // The runtime values of arguments are not important.
@@ -95,7 +93,6 @@ TEST_P(evm, evmone_block_gas_cost_overflow_create)
 
 TEST_P(evm, evmone_block_gas_cost_overflow_balance)
 {
-    GTEST_SKIP() << "Test temporarily skipped";
     // Here we build single-block bytecode with as many BALANCE instructions as possible.
 
     rev = EVMC_ISTANBUL;  // Here BALANCE costs 700.
@@ -121,7 +118,6 @@ TEST_P(evm, evmone_block_gas_cost_overflow_balance)
 
 TEST_P(evm, loop_full_of_jumpdests)
 {
-    GTEST_SKIP() << "Test temporarily skipped";
     // The code is a simple loop with a counter taken from the input or a constant (325) if the
     // input is zero. The loop body contains of only JUMPDESTs, as much as the code size limit
     // allows.
