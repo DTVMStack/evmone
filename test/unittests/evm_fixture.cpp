@@ -42,7 +42,13 @@ void discover_and_load_external_vm() {
 
     for (const auto& path : search_paths) {
         if (std::filesystem::exists(path)) {
-            if (try_load_external_vm(path)) {
+            const char* env_options = getenv("EVMONE_OPTIONS");
+            std::string options = path;
+            if (env_options != nullptr) {
+                options += "," + std::string(env_options);
+            }
+
+            if (try_load_external_vm(options.c_str())) {
                 return;
             }
         }

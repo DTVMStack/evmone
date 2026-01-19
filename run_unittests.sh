@@ -3,6 +3,7 @@ cmake -S . -B build -DEVMONE_TESTING=ON
 cmake --build build -j16
 
 TEST_LIST_FILE=${1:-"./EVMOneUnitTestsRunList.txt"}
+export EVMONE_OPTIONS=$2
 
 FILTER_PARAM=""
 
@@ -23,4 +24,5 @@ if [ -n "$ASAN_LIB_PATH" ]; then
 else
     echo "Warning: AddressSanitizer library not found" >&2
 fi
+
 ./build/bin/evmone-unittests --gtest_filter="$FILTER_PARAM"
