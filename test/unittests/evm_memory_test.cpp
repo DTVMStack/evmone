@@ -175,7 +175,6 @@ struct
 
 TEST_P(evm, memory_access)
 {
-    GTEST_SKIP() << "Test temporarily skipped";
     rev = EVMC_EXPERIMENTAL;
     // This test checks if instructions accessing memory properly respond with out-of-gas
     // error for combinations of memory offset and memory size arguments.
@@ -243,7 +242,6 @@ TEST_P(evm, memory_access)
 
 TEST_P(evm, mcopy)
 {
-    GTEST_SKIP() << "Test temporarily skipped";
     rev = EVMC_CANCUN;
     bytecode s;
     s += mstore(0, push(0x0123456789abcdef000000000000000000000000000000000000000000000000_u256)) +
