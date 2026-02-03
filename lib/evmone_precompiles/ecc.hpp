@@ -132,7 +132,7 @@ struct Point
 template <typename Curve>
 struct AffinePoint
 {
-    using FE = Curve::Fp;
+    using FE = typename Curve::Fp;
 
     FE x;
     FE y;
@@ -141,7 +141,7 @@ struct AffinePoint
     constexpr AffinePoint(const FE& x_, const FE& y_) noexcept : x{x_}, y{y_} {}
 
     /// Create the point from literal values.
-    consteval AffinePoint(const Curve::uint_type& x_value, const Curve::uint_type& y_value) noexcept
+    consteval AffinePoint(const typename Curve::uint_type& x_value, const typename Curve::uint_type& y_value) noexcept
       : x{x_value}, y{y_value}
     {}
 
@@ -175,7 +175,7 @@ struct AffinePoint
 template <typename Curve>
 struct ProjPoint
 {
-    using FE = Curve::Fp;
+    using FE = typename Curve::Fp;
     FE x;
     FE y{1};  // TODO: Make sure this is compile-time constant.
     FE z;
@@ -466,7 +466,7 @@ ProjPoint<Curve> dbl(const ProjPoint<Curve>& p) noexcept
 template <typename Curve>
 ProjPoint<Curve> mul(const AffinePoint<Curve>& p, typename Curve::uint_type c) noexcept
 {
-    using IntT = Curve::uint_type;
+    using IntT = typename Curve::uint_type;
 
     // Reduce the scalar by the curve group order.
     // This allows using more efficient add algorithm in the loop because doubling cannot happen.
@@ -531,6 +531,9 @@ struct SignedScalar
 {
     bool sign = false;  // The sign of the scalar: false = positive, true = negative.
     UIntT value;
+
+    SignedScalar() = default;
+    constexpr SignedScalar(bool s, const UIntT& v) noexcept : sign{s}, value{v} {}
 };
 
 
@@ -586,7 +589,7 @@ template <typename Curve>
 std::array<SignedScalar<typename Curve::uint_type>, 2> decompose(
     const typename Curve::uint_type& k) noexcept
 {
-    using UIntT = Curve::uint_type;
+    using UIntT = typename Curve::uint_type;
 
     // Validate the provided setup parameters.
     // λ² + λ ≡ -1 mod n
