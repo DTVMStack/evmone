@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <evmc/mocked_host.hpp>
+#include <evmc/loader.h>
 #include <evmone/evmone.h>
 #include <test/utils/bytecode.hpp>
 #include <test/utils/utils.hpp>
@@ -57,11 +58,6 @@ static auto print_input = std::getenv("PRINT");
 
 /// The reference VM: evmone Baseline
 static auto ref_vm = evmc::VM{evmc_create_evmone()};
-
-static evmc::VM external_vms[] = {
-    evmc::VM{evmc_create_evmone(), {{"advanced", ""}}},
-};
-
 
 class FuzzHost : public evmc::MockedHost
 {
@@ -298,6 +294,27 @@ inline evmc_status_code check_and_normalize(evmc_status_code status) noexcept
     return status <= EVMC_REVERT ? status : EVMC_FAILURE;
 }
 
+inline bool try_load_external(const std::string& path, std::unordered_map<std::string, evmc::VM> &external_vms, const std::string& vm_name = "external") noexcept
+{
+    auto ec = evmc_loader_error_code{};
+    auto external_vm = evmc::VM{evmc_load_and_configure(path.c_str(), &ec)};
+
+    if (ec == EVMC_LOADER_SUCCESS)
+    {
+        external_vms[vm_name] = std::move(external_vm);
+        std::cout << "External VM loaded: " << path << " as '" << vm_name << "'\n";
+        return true;
+    }
+    else
+    {
+        std::cout << "Failed to load " << path << " (error " << ec;
+        if (const auto error = evmc_last_error_msg())
+            std::cout << ": " << error;
+        std::cout << ")\n";
+        return false;
+    }
+}
+
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t data_size) noexcept
 {
     auto in = populate_input(data, data_size);
@@ -306,6 +323,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t data_size) noe
 
     auto ref_host = in.host;  // Copy Host.
     const auto& code = ref_host.accounts[in.msg.recipient].code;
+    std::unordered_map<std::string, evmc::VM> external_vms;
 
     if (print_input != nullptr)
     {
@@ -330,9 +348,18 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t data_size) noe
     if (ref_status == EVMC_FAILURE)
         ASSERT_EQ(ref_res.gas_left, 0);
 
-    for (auto& vm : external_vms)
+    // Load external lib
+    const char* external_env_options = getenv("EVMONE_EXTERNAL_OPTIONS");
+    if (external_env_options != nullptr) {
+        std::string vm_name;
+        std::string modified_options(external_env_options);
+        try_load_external(external_env_options, external_vms);
+    }
+
+    for (auto& pair : external_vms)
     {
         auto host = in.host;  // Copy Host.
+        auto &vm = pair.second;
         const auto res = vm.execute(host, in.rev, in.msg, code.data(), code.size());
 
         const auto status = check_and_normalize(res.status_code);
