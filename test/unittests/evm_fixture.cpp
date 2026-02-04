@@ -14,65 +14,26 @@ namespace
 {
 evmc::VM advanced_vm{evmc_create_evmone(), {{"advanced", ""}}};
 evmc::VM baseline_vm{evmc_create_evmone()};
-
-std::unique_ptr<evmc::VM> external_vm;
-
-bool try_load_external_vm(const std::string& path, const std::string& vm_name = "external")
-{
-    auto ec = evmc_loader_error_code{};
-    auto vm = evmc::VM{evmc_load_and_configure(path.c_str(), &ec)};
-    if (ec == EVMC_LOADER_SUCCESS) {
-        external_vm = std::make_unique<evmc::VM>(std::move(vm));
-        std::cout << "Successfully loaded external VM from: " << path << std::endl;
-        return true;
-    }
-    std::cout << "Failed to load external VM from: " << path 
-              << " (error: " << static_cast<int>(ec) << ")" << std::endl;
-    return false;
-}
-
-void discover_and_load_external_vm() {
-#ifdef HAVE_EXTERNAL_VM
-    std::vector<std::string> search_paths = {
-        "./libdtvmapi.so",
-        "../libdtvmapi.so", 
-        "/usr/local/lib/libdtvmapi.so",
-        "/usr/lib/libdtvmapi.so"
-    };
-
-    for (const auto& path : search_paths) {
-        if (std::filesystem::exists(path)) {
-            const char* env_options = getenv("EVMONE_OPTIONS");
-            std::string options = path;
-            if (env_options != nullptr) {
-                options += "," + std::string(env_options);
-            }
-
-            if (try_load_external_vm(options.c_str())) {
-                return;
-            }
-        }
-    }
-
-    std::cout << "External VM library not found in any search path" << std::endl;
-#else
-    std::cout << "External VM support not compiled in" << std::endl;
-#endif
-}
+evmc::VM external_vm;
 
 std::vector<evmc::VM*> get_available_vms() {
     static bool initialized = false;
-    if (!initialized) {
-        discover_and_load_external_vm();
-        initialized = true;
-    }
-
+    static bool external_load_state = false;
     std::vector<evmc::VM*> vms;
     vms.push_back(&advanced_vm);
     vms.push_back(&baseline_vm);
 
-    if (external_vm) {
-        vms.push_back(external_vm.get());
+    // Load external lib
+    const char* external_env_options = getenv("EVMONE_EXTERNAL_OPTIONS");
+    if (external_env_options != nullptr) {
+        if (!initialized) {
+            external_load_state = evmone::test::try_load_external(external_env_options, external_vm);
+            initialized = true;
+        }
+    }
+
+    if (external_load_state) {
+        vms.push_back(&external_vm);
     }
 
     return vms;
@@ -84,7 +45,7 @@ const char* print_vm_name(const testing::TestParamInfo<evmc::VM*>& info) noexcep
         return "evmone_advanced";
     if (info.param == &baseline_vm)
         return "evmone_baseline";
-    if (external_vm && info.param == external_vm.get())
+    if (info.param == &external_vm)
         return "external_vm";
     return "unknown";
 }
@@ -100,7 +61,7 @@ bool evm::is_advanced() noexcept
 
 bool evm::is_external() noexcept
 {
-    return external_vm && GetParam() == external_vm.get();
+    return GetParam() == &external_vm;
 }
 
 std::string evm::get_vm_name() const noexcept
@@ -109,7 +70,7 @@ std::string evm::get_vm_name() const noexcept
         return "evmone_advanced";
     if (GetParam() == &baseline_vm)
         return "evmone_baseline";
-    if (external_vm && GetParam() == external_vm.get())
+    if (GetParam() == &external_vm)
         return "external_vm";
     return "unknown";
 }

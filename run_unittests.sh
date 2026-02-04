@@ -3,10 +3,9 @@ cmake -S . -B build -DEVMONE_TESTING=ON
 cmake --build build -j16
 
 TEST_LIST_FILE=${1:-"./EVMOneUnitTestsRunList.txt"}
-export EVMONE_OPTIONS=$2
+export EVMONE_EXTERNAL_OPTIONS=$2
 
 FILTER_PARAM=""
-
 while IFS= read -r line || [[ -n "$line" ]]; do
     line_clean=$(echo "$line" | xargs)
     if [ -n "$line_clean" ]; then

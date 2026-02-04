@@ -7,7 +7,6 @@
 #include "synthetic_benchmarks.hpp"
 #include <benchmark/benchmark.h>
 #include <evmc/evmc.hpp>
-#include <evmc/loader.h>
 #include <evmone/evmone.h>
 #include <filesystem>
 #include <fstream>
@@ -259,80 +258,6 @@ std::tuple<int, std::vector<BenchmarkCase>> parseargs(int argc, char** argv)
 }  // namespace
 }  // namespace evmone::test
 
-namespace
-{
-bool try_load_external_vm(const std::string& path, const std::string& vm_name = "external")
-{
-    auto ec = evmc_loader_error_code{};
-    auto external_vm = evmc::VM{evmc_load_and_configure(path.c_str(), &ec)};
-
-    if (ec == EVMC_LOADER_SUCCESS)
-    {
-        evmone::test::registered_vms[vm_name] = std::move(external_vm);
-        std::cout << "External VM loaded: " << path << " as '" << vm_name << "'\n";
-        return true;
-    }
-    else
-    {
-        std::cout << "Failed to load " << path << " (error " << ec;
-        if (const auto error = evmc_last_error_msg())
-            std::cout << ": " << error;
-        std::cout << ")\n";
-        return false;
-    }
-}
-
-void discover_and_load_vms()
-{
-    using namespace evmone::test;
-
-    registered_vms["advanced"] = evmc::VM{evmc_create_evmone(), {{"advanced", ""}}};
-    registered_vms["baseline"] = evmc::VM{evmc_create_evmone()};
-    std::cout << "Built-in VMs loaded: advanced, baseline\n";
-
-#ifdef HAVE_EXTERNAL_VM
-    const std::vector<std::string> search_paths = {
-        "./libdtvmapi.so",
-        "../libdtvmapi.so",
-        "/usr/local/lib/libdtvmapi.so",
-        "/usr/lib/libdtvmapi.so"
-    };
-
-    bool external_vm_loaded = false;
-
-    for (const auto& path : search_paths)
-    {
-        if (fs::exists(path))
-        {
-            std::cout << "Found external VM library at: " << path << "\n";
-            if (try_load_external_vm(path))
-            {
-                external_vm_loaded = true;
-                break;
-            }
-        }
-    }
-
-    if (!external_vm_loaded)
-    {
-        std::cout << "External VM not found in any of the search paths:\n";
-        for (const auto& path : search_paths)
-        {
-            std::cout << "  " << path << "\n";
-        }
-    }
-#else
-    std::cout << "External VM support not compiled in (HAVE_EXTERNAL_VM not defined)\n";
-#endif
-    std::cout << "Available VMs (" << registered_vms.size() << "): ";
-    for (const auto& [name, vm] : registered_vms)
-    {
-        std::cout << name << " ";
-    }
-    std::cout << "\n";
-}
-}  // namespace
-
 int main(int argc, char** argv)
 {
     MaybeReenterWithoutASLR(argc, argv);
@@ -347,8 +272,20 @@ int main(int argc, char** argv)
 
         if (ec != 0)
             return ec;
+        
+        registered_vms["advanced"] = evmc::VM{evmc_create_evmone(), {{"advanced", ""}}};
+        registered_vms["baseline"] = evmc::VM{evmc_create_evmone()};
+        registered_vms["bnocgoto"] = evmc::VM{evmc_create_evmone(), {{"cgoto", "no"}}};
 
-        discover_and_load_vms();
+        const char* external_env_options = getenv("EVMONE_EXTERNAL_OPTIONS");
+        if (external_env_options != nullptr) {
+            evmc::VM external;
+            auto ret = try_load_external(external_env_options, external);
+            if (!ret) {
+                return -1;
+            }
+            registered_vms["external"] = std::move(external);
+        }
 
         register_benchmarks(benchmark_cases);
         register_synthetic_benchmarks();

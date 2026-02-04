@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <iostream>
 #include <evmc/evmc.hpp>
 #include <evmc/hex.hpp>
+#include <evmc/loader.h>
 #include <algorithm>
 
 namespace evmone::test
@@ -63,6 +65,26 @@ inline bytes operator""_b(const char* data, size_t size)
 inline bytes operator""_hex(const char* s, size_t size)
 {
     return from_spaced_hex({s, size}).value();
+}
+
+inline bool try_load_external(const std::string& config, evmc::VM& vm, const std::string& vm_name = "external") noexcept
+{
+    auto ec = evmc_loader_error_code{};
+    vm = evmc::VM{evmc_load_and_configure(config.c_str(), &ec)};
+
+    if (ec == EVMC_LOADER_SUCCESS)
+    {
+        std::cout << "External VM loaded: " << config << " as '" << vm_name << "'\n";
+        return true;
+    }
+    else
+    {
+        std::cout << "Failed to load " << config << " (error " << ec;
+        if (const auto error = evmc_last_error_msg())
+            std::cout << ": " << error;
+        std::cout << ")\n";
+        return false;
+    }
 }
 
 }  // namespace evmone::test
