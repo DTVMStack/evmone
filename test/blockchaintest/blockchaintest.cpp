@@ -7,7 +7,7 @@
 #include <evmone/evmone.h>
 #include <evmone/version.h>
 #include <gtest/gtest.h>
-#include <evmc/loader.h>
+#include <test/utils/utils.hpp>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -21,54 +21,26 @@ namespace vm_manager
 {
 evmc::VM evmone_advanced{evmc_create_evmone(), {{"advanced", ""}}};
 evmc::VM evmone_baseline{evmc_create_evmone()};
-
-std::unique_ptr<evmc::VM> external_vm;
-
-bool try_load_external_vm(const std::string& path)
-{
-    auto ec = evmc_loader_error_code{};
-    auto vm = evmc::VM{evmc_load_and_configure(path.c_str(), &ec)};
-    if (ec == EVMC_LOADER_SUCCESS) {
-        external_vm = std::make_unique<evmc::VM>(std::move(vm));
-        std::cout << "Successfully loaded external VM from: " << path << std::endl;
-        return true;
-    }
-    return false;
-}
-
-void discover_and_load_external_vm() {
-#ifdef HAVE_EXTERNAL_VM
-    std::vector<std::string> search_paths = {
-        "./libdtvmapi.so",
-        "../libdtvmapi.so",
-        "/usr/local/lib/libdtvmapi.so",
-        "/usr/lib/libdtvmapi.so"
-    };
-
-    for (const auto& path : search_paths) {
-        if (std::filesystem::exists(path)) {
-            if (try_load_external_vm(path)) {
-                return;
-            }
-        }
-    }
-    std::cout << "External VM library not found in any search path" << std::endl;
-#endif
-}
+evmc::VM external_vm;
 
 std::vector<std::pair<std::string, evmc::VM*>> get_available_vms() {
     static bool initialized = false;
-    if (!initialized) {
-        discover_and_load_external_vm();
-        initialized = true;
-    }
-
+    static bool external_load_state = false;
     std::vector<std::pair<std::string, evmc::VM*>> vms;
     vms.emplace_back("evmone_advanced", &evmone_advanced);
     vms.emplace_back("evmone_baseline", &evmone_baseline);
 
-    if (external_vm) {
-        vms.emplace_back("external_vm", external_vm.get());
+    // Load external lib
+    const char* external_env_options = getenv("EVMONE_EXTERNAL_OPTIONS");
+    if (external_env_options != nullptr) {
+        if (!initialized) {
+            external_load_state = evmone::test::try_load_external(external_env_options, external_vm);
+            initialized = true;
+        }
+    }
+
+    if (external_load_state) {
+        vms.emplace_back("external_vm", &external_vm);
     }
 
     return vms;
