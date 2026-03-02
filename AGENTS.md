@@ -53,3 +53,23 @@ All tests can be run via CTest. Make sure the build is up to date.
 
 - `ctest --test-dir build/debug --output-on-failure`
 - to filter tests use `-R <regex>`
+
+## Fuzzing
+
+The fuzzer compares an external EVMC-compatible VM against evmone (the reference).
+
+### Run fuzzer with seed corpus
+
+```bash
+EVMONE_EXTERNAL_OPTIONS=<path_to_external_vm.so> ./build/bin/evmone-fuzzer test/fuzzer/corpus/
+```
+
+### Reproduce a single crash file
+
+```bash
+EVMONE_EXTERNAL_OPTIONS=<path_to_external_vm.so> ./build/bin/evmone-fuzzer crash_files/<crash_file>
+```
+
+### Seed corpus
+
+The seed corpus lives in `test/fuzzer/corpus/`. Each seed file name describes the EVM opcodes it exercises (e.g. `seed_sstore_sload.bin`, `seed_call_return.bin`).
